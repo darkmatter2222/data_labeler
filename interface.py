@@ -29,18 +29,14 @@ class bbox_label():
         self.image_canvas.bind("<ButtonPress-1>", self.mouseDown)
         self.image_canvas.bind("<ButtonRelease-1>", self.mouseUp)
 
-        self.list_box = Listbox(self.root, bg='white', height=33, width=60)
-        self.list_box.grid(row=0, column=1, sticky=N)
-        self.list_box.bind("<ButtonRelease-1>", self.lbMouseUp)
-
         self.button_frame = Frame(self.root)
         self.button_frame.grid(row=2, column=0, sticky=N + W)
-        self.load_button = Button(self.button_frame, text="Load", width=10, command=self.loadData)
+        self.load_button = Button(self.button_frame, text="Reset", width=10, command=self.reset)
         self.load_button.grid(row=0, column=0, sticky=W)
-        self.save_button = Button(self.button_frame, text="Save", width=10, command=self.saveData)
-        self.save_button.grid(row=0, column=1, sticky=W)
         self.commit_button = Button(self.button_frame, text="Commit", width=10, command=self.commit)
         self.commit_button.grid(row=0, column=2, sticky=W)
+        self.root.bind("<space>", self.commit)
+        self.root.bind("<BackSpace>", self.reset)
 
         self.cords_frame = Frame(self.root)
         self.cords_frame.grid(row=1, column=0, sticky=N + W)
@@ -48,9 +44,18 @@ class bbox_label():
         self.cords_label = Label(self.cords_frame, text='')
         self.cords_label.grid(row=0, column=0, sticky=W)
 
+        self.count_label1 = Label(self.cords_frame, text='')
+        self.count_label1.grid(row=1, column=0, sticky=W)
+        self.count_label2 = Label(self.cords_frame, text='')
+        self.count_label2.grid(row=2, column=0, sticky=W)
+
         self.select_cords_label = Label(self.cords_frame, text='')
         self.select_cords_label.grid(row=0, column=1, sticky=E)
+        self.unlabeled = []
+        self.labeled = {}
         self.loadData()
+
+        self.image_name_on_screen = None
 
     def mouseMove(self, event):
         self.cords_label.config(text='x: %d, y: %d' % (event.x, event.y))
@@ -67,21 +72,9 @@ class bbox_label():
                                            self.box['end'][1],
                                            outline="#ff6600")
 
-    def lbMouseUp(self, event):
-        sel = self.list_box.curselection()
-        self.img = ImageTk.PhotoImage(
-            file=f"{self.data_root}\\{' - '.join(self.list_box.get(sel[0]).split(' - ')[1:])}")
-        self.image_canvas.create_image(0, 0, anchor=NW, image=self.img)
-
-        sel = self.list_box.curselection()
-        state = self.list_box.get(sel[0]).split(' - ')[0]
-        file = ' - '.join(self.list_box.get(sel[0]).split(' - ')[1:])
-        if state == 'Labeled':
-            for i, data in enumerate(self.image_data):
-                if data['image_name'] == file:
-                    self.image_canvas.create_rectangle(*self.image_data[i]['bbox'],
-                                                       outline="#ff6600")
-                break
+    def reset(self, event=None):
+        self.loadData()
+        self.load_next_image()
 
     def readData(self):
         self.image_data = []
@@ -95,42 +88,56 @@ class bbox_label():
         except:
             self.image_data = []
 
-
     def saveData(self):
         with open(f"{self.data_root}\\boxes.json", "w") as outfile:
             outfile.write(json.dumps(self.image_data, indent=1))
 
     def loadData(self):
-        self.list_box.delete(0, END)
+        self.image_canvas.delete('all')
+        self.image_name_on_screen = None
+        self.unlabeled = []
+        self.labeled = {}
+        self.box = {}
         self.readData()
-        labeled_image_names = []
-        for i, data in enumerate(self.image_data):
-            self.list_box.insert(i, str('Labeled - ') + data['image_name'])
-            labeled_image_names.append(data['image_name'])
-        for i, data in enumerate(self.image_names):
-            file = data.split('\\')[-1:][0]
-            if file not in labeled_image_names:
-                self.list_box.insert(i, str('Not Labeled - ') + file)
+        for data in self.image_data:
+            self.labeled[data['image_name']] = data['bbox']
 
-    def commit(self):
-        sel = self.list_box.curselection()
-        state = self.list_box.get(sel[0]).split(' - ')[0]
-        file = ' - '.join(self.list_box.get(sel[0]).split(' - ')[1:])
-        if state == 'Labeled':
-            for i, data in enumerate(self.image_data):
-                if data[i]['image_name'] == file:
-                    self.image_data[i]['bbox'] = [self.box['start'][0], self.box['start'][1], self.box['end'][0],
-                                                  self.box['end'][1]]
-                break
-        else:
-            self.image_data.append(
-                {"image_name": file, 'bbox': [self.box['start'][0], self.box['start'][1], self.box['end'][0],
-                                              self.box['end'][1]]})
+        for image_name in self.image_names:
+            if image_name.split('\\')[-1:][0] not in self.labeled:
+                self.unlabeled.append(image_name)
+
+        self.count_label1.config(text=f'Labeled:{len(self.labeled)}')
+        self.count_label2.config(text=f'Labeled:{len(self.unlabeled)}')
+
+    def load_next_image(self):
+        try:
+
+            if len(self.unlabeled) > 0:
+                self.img = ImageTk.PhotoImage(
+                    file=f"{self.data_root}\\" + self.unlabeled[0].split('\\')[-1:][0])
+                self.image_canvas.create_image(0, 0, anchor=NW, image=self.img)
+                self.image_name_on_screen = self.unlabeled[0]
+            else:
+                self.image_canvas.delete('all')
+                self.image_name_on_screen = None
+        except:
+            print(self.unlabeled[0])
+
+    def commit(self, event=None):
+        self.image_data.append(
+            {"image_name": self.image_name_on_screen.split('\\')[-1:][0],
+             'bbox': [self.box['start'][0],
+                      self.box['start'][1],
+                      self.box['end'][0],
+                      self.box['end'][1]]})
 
         self.saveData()
         self.loadData()
+        self.load_next_image()
 
     def start(self):
         self.root.title(self.title)
-
+        self.loadData()
+        self.load_next_image()
         self.root.mainloop()
+
